@@ -17,6 +17,8 @@ bot.onText(/\/start/, (msg) => {
     return; // Если уже есть статус, не отправляем повторно сообщение
   }
 
+  userStates[chatId] = 'choosing_platform'; // Устанавливаем статус пользователя
+
   bot.sendMessage(chatId, 'Привет! Из какой соцсети будем скачивать видео?', {
     reply_markup: {
       keyboard: [['Instagram', 'YouTube']],
@@ -24,27 +26,28 @@ bot.onText(/\/start/, (msg) => {
       resize_keyboard: true,
     },
   });
-
-  userStates[chatId] = 'choosing_platform'; // Устанавливаем статус пользователя
 });
 
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text.trim();
 
-  if (text === 'Instagram' || text === 'YouTube') {
-    userStates[chatId] = text; // Запоминаем выбор соцсети
-    if (text === 'YouTube') {
-      bot.sendMessage(chatId, 'Функционал для скачивания с YouTube еще в разработке.');
-      delete userStates[chatId];
-    } else {
-      bot.sendMessage(chatId, 'Отправьте ссылку на видео.');
-    }
+  if (!userStates[chatId]) {
     return;
   }
 
-  if (!userStates[chatId]) {
-    bot.sendMessage(chatId, 'Сначала выберите соцсеть: Instagram или YouTube.');
+  if (userStates[chatId] === 'choosing_platform') {
+    if (text === 'Instagram' || text === 'YouTube') {
+      userStates[chatId] = text;
+      if (text === 'YouTube') {
+        bot.sendMessage(chatId, 'Функционал для скачивания с YouTube еще в разработке.');
+        delete userStates[chatId];
+      } else {
+        bot.sendMessage(chatId, 'Отправьте ссылку на видео.');
+      }
+    } else {
+      bot.sendMessage(chatId, 'Пожалуйста, выберите Instagram или YouTube.');
+    }
     return;
   }
 
