@@ -86,6 +86,17 @@ bot.on('message', async (msg) => {
       await updateProgress(chatId, currentMessage.message_id, 'Отправка видео', 75);
       await bot.sendVideo(chatId, finalOutputPath);
       await updateProgress(chatId, currentMessage.message_id, 'Успешно отправлено!', 100);
+      
+      // Отправка сообщения с повторным выбором соцсети
+      bot.sendMessage(chatId, 'Откуда скачаем еще?', {
+        reply_markup: {
+          keyboard: [['Instagram', 'YouTube']],
+          one_time_keyboard: true,
+          resize_keyboard: true,
+        },
+      });
+      userStates[chatId] = 'choosing_platform';
+      
     } catch (error) {
       console.error(error.message);
       await bot.editMessageText('Ошибка при скачивании видео.', {
