@@ -2,7 +2,7 @@ const { exec } = require('child_process');
 const fs = require('fs');
 const { userStates } = require('./startHandler');
 
-async function handleMessage(bot, msg) {
+async function handleMessage(bot, msg, startTime) {
     const chatId = msg.chat.id;
     const text = msg.text.trim();
 
@@ -44,7 +44,9 @@ async function handleMessage(bot, msg) {
 
             await updateProgress(bot, chatId, currentMessage.message_id, 'Отправка видео', 75);
             await bot.sendVideo(chatId, finalOutputPath);
-            await updateProgress(bot, chatId, currentMessage.message_id, 'Успешно отправлено!', 100);
+
+            const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(2);
+            await updateProgress(bot, chatId, currentMessage.message_id, `Успешно отправлено!\n\n✅ Выполнено за ${elapsedTime} секунд`, 100);
             
             bot.sendMessage(chatId, 'Откуда скачаем еще?', {
                 reply_markup: {
