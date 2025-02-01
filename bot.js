@@ -12,9 +12,8 @@ const userStates = {}; // Храним состояние пользовател
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
 
-  if (userStates[chatId]) {
-    return;
-  }
+  // Очищаем состояние пользователя при новом старте
+  delete userStates[chatId];
 
   userStates[chatId] = 'choosing_platform';
 
