@@ -1,25 +1,110 @@
+require('dotenv').config();
+
 const TelegramBot = require('node-telegram-bot-api');
 const { exec } = require('child_process');
 const fs = require('fs');
 
-// Токен вашего бота
-const BOT_TOKEN = '';
-
-
-// Инициализация бота
+const BOT_TOKEN = process.env.BOT_TOKEN;
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// Функция для обновления прогресса
-const updateProgress = async (chatId, messageId, stage, progress) => {
-  await bot.editMessageText(
-    `Принято в работу: ${progress}%\n\nЭтап: ${stage}`,
-    { chat_id: chatId, message_id: messageId }
-  );
-};
+const userStates = {}; // Храним состояние пользователя
 
-// Обёртка для exec в виде промиса
-const execPromise = (command) =>
-  new Promise((resolve, reject) => {
+bot.onText(/\/start/, (msg) => {
+  const chatId = msg.chat.id;
+
+  // Проверяем, не находится ли пользователь уже в выборе соцсети
+  if (userStates[chatId]) {
+    return; // Если уже есть статус, не отправляем повторно сообщение
+  }
+
+  bot.sendMessage(chatId, 'Привет! Из какой соцсети будем скачивать видео?', {
+    reply_markup: {
+      keyboard: [['Instagram', 'YouTube']],
+      one_time_keyboard: true,
+      resize_keyboard: true,
+    },
+  });
+
+  userStates[chatId] = 'choosing_platform'; // Устанавливаем статус пользователя
+});
+
+bot.on('message', async (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text.trim();
+
+  if (text === 'Instagram' || text === 'YouTube') {
+    userStates[chatId] = text; // Запоминаем выбор соцсети
+    if (text === 'YouTube') {
+      bot.sendMessage(chatId, 'Функционал для скачивания с YouTube еще в разработке.');
+      delete userStates[chatId];
+    } else {
+      bot.sendMessage(chatId, 'Отправьте ссылку на видео.');
+    }
+    return;
+  }
+
+  if (!userStates[chatId]) {
+    bot.sendMessage(chatId, 'Сначала выберите соцсеть: Instagram или YouTube.');
+    return;
+  }
+
+  const platform = userStates[chatId];
+  delete userStates[chatId];
+
+  if (!text.startsWith('http')) {
+    bot.sendMessage(chatId, 'Пожалуйста, отправьте корректную ссылку.');
+    return;
+  }
+
+  if (platform === 'Instagram') {
+    let currentMessage = await bot.sendMessage(chatId, 'Принято в работу: 0%');
+
+    const tempOutputPath = `downloads/temp_video_${Date.now()}.mp4`;
+    const finalOutputPath = tempOutputPath.replace('temp_', '');
+    const cookiesPath = 'config/cookies.txt';
+
+    if (!fs.existsSync(cookiesPath)) {
+      await bot.editMessageText('Ошибка: Файл cookies отсутствует.', {
+        chat_id: chatId,
+        message_id: currentMessage.message_id,
+      });
+      return;
+    }
+
+    try {
+      await updateProgress(chatId, currentMessage.message_id, 'Скачивание видео', 25);
+      const downloadCommand = `yt-dlp --cookies ${cookiesPath} -f bestvideo+bestaudio --merge-output-format mp4 -o "${tempOutputPath}" "${text}"`;
+      await execPromise(downloadCommand);
+
+      await updateProgress(chatId, currentMessage.message_id, 'Перекодировка видео', 60);
+      const ffmpegCommand = `ffmpeg -i "${tempOutputPath}" -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -ar 44100 -ac 2 -movflags +faststart "${finalOutputPath}"`;
+      await execPromise(ffmpegCommand);
+
+      await updateProgress(chatId, currentMessage.message_id, 'Отправка видео', 75);
+      await bot.sendVideo(chatId, finalOutputPath);
+      await updateProgress(chatId, currentMessage.message_id, 'Успешно отправлено!', 100);
+    } catch (error) {
+      console.error(error.message);
+      await bot.editMessageText('Ошибка при скачивании видео.', {
+        chat_id: chatId,
+        message_id: currentMessage.message_id,
+      });
+    } finally {
+      if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath);
+      if (fs.existsSync(finalOutputPath)) fs.unlinkSync(finalOutputPath);
+    }
+  }
+});
+
+async function updateProgress(chatId, messageId, stage, progress) {
+  await bot.editMessageText(`Принято в работу: ${progress}%\n\nЭтап: ${stage}`, {
+    chat_id: chatId,
+    message_id: messageId,
+  });
+}
+
+function execPromise(command) {
+  return new Promise((resolve, reject) => {
     exec(command, (error, stdout, stderr) => {
       if (error) {
         reject(new Error(stderr || error.message));
@@ -28,93 +113,4 @@ const execPromise = (command) =>
       resolve(stdout.trim());
     });
   });
-
-// Обработчик команд
-bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id, 'Привет! Отправь мне ссылку на рилс, и я скачаю его для тебя.');
-});
-
-// Основной обработчик сообщений
-bot.on('message', async (msg) => {
-  const chatId = msg.chat.id;
-  const url = msg.text.trim();
-
-  if (!url.startsWith('http')) {
-    bot.sendMessage(chatId, 'Пожалуйста, отправь корректную ссылку.');
-    return;
-  }
-
-  // Отправляем стартовое сообщение
-  let currentMessage = await bot.sendMessage(chatId, 'Принято в работу: 0%');
-
-  const tempOutputPath = `downloads/temp_video_${Date.now()}.mp4`; // Временный файл
-  const finalOutputPath = tempOutputPath.replace('temp_', '');     // Итоговый файл
-  const cookiesPath = 'config/cookies.txt'; // Путь к cookies
-
-  // Проверяем наличие cookies
-  if (!fs.existsSync(cookiesPath)) {
-    await bot.editMessageText(
-      'Ошибка: Файл cookies отсутствует. Убедитесь, что файл config/cookies.txt существует.',
-      { chat_id: chatId, message_id: currentMessage.message_id }
-    );
-    return;
-  }
-
-  try {
-    // 🔥 ШАГ 1: Скачивание видео
-    await updateProgress(chatId, currentMessage.message_id, 'Скачивание видео', 25);
-    const downloadCommand = `yt-dlp --cookies ${cookiesPath} -f bestvideo+bestaudio --merge-output-format mp4 -o "${tempOutputPath}" "${url}"`;
-    await execPromise(downloadCommand);
-
-    // 🔥 ШАГ 2: Проверка разрешения и кодека
-    await updateProgress(chatId, currentMessage.message_id, 'Анализ видео', 40);
-    const resolutionCommand = `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "${tempOutputPath}"`;
-    const resolution = await execPromise(resolutionCommand);
-    const [width, height] = resolution.split(',');
-
-    console.log(`Видео разрешение: ${width}x${height}`);
-
-    const checkCodecCommand = `ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 "${tempOutputPath}"`;
-    const codec = await execPromise(checkCodecCommand);
-
-    console.log(`Кодек видео: ${codec}`);
-
-    // 🔥 ШАГ 3: Перекодировка для Telegram
-    await updateProgress(chatId, currentMessage.message_id, 'Перекодировка видео', 60);
-
-    const ffmpegCommand = `ffmpeg -i "${tempOutputPath}" -vf "scale=${width}:${height},setsar=1:1,format=yuv420p" \
-      -c:v libx264 -profile:v baseline -level 3.0 -preset fast -crf 23 \
-      -c:a aac -b:a 128k -ar 44100 -ac 2 -movflags +faststart \
-      "${finalOutputPath}"`;
-
-    await execPromise(ffmpegCommand);
-
-    // 🔥 ШАГ 4: Отправка видео
-    await updateProgress(chatId, currentMessage.message_id, 'Отправка видео', 75);
-    await bot.sendVideo(chatId, finalOutputPath);
-    await updateProgress(chatId, currentMessage.message_id, 'Успешно отправлено!', 100);
-  } catch (error) {
-    console.error(error.message);
-
-    let errorMessage = 'Произошла ошибка при скачивании видео.';
-
-    if (error.message.includes('rate-limit')) {
-      errorMessage = 'Ошибка: Instagram временно ограничил доступ (rate-limit). Попробуйте позже.';
-    } else if (error.message.includes('login required')) {
-      errorMessage = 'Ошибка: Требуется авторизация. Проверьте файл cookies.txt.';
-    } else if (error.message.includes('Unable to extract video url')) {
-      errorMessage = 'Ошибка: Не удалось извлечь URL видео. Проверьте ссылку.';
-    } else {
-      errorMessage += `\n\nЛог:\n${error.message}`;
-    }
-
-    await bot.editMessageText(errorMessage, {
-      chat_id: chatId,
-      message_id: currentMessage.message_id,
-    });
-  } finally {
-    // Очистка файлов
-    if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath);
-    if (fs.existsSync(finalOutputPath)) fs.unlinkSync(finalOutputPath);
-  }
-});
+}
