@@ -12,42 +12,45 @@ const userStates = {}; // Храним состояние пользовател
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
 
-  // Проверяем, не находится ли пользователь уже в выборе соцсети
   if (userStates[chatId]) {
-    return; // Если уже есть статус, не отправляем повторно сообщение
+    return;
   }
 
-  userStates[chatId] = 'choosing_platform'; // Устанавливаем статус пользователя
+  userStates[chatId] = 'choosing_platform';
 
   bot.sendMessage(chatId, 'Привет! Из какой соцсети будем скачивать видео?', {
     reply_markup: {
-      keyboard: [['Instagram', 'YouTube']],
-      one_time_keyboard: true,
-      resize_keyboard: true,
+      inline_keyboard: [[
+        { text: 'Instagram', callback_data: 'Instagram' },
+        { text: 'YouTube', callback_data: 'YouTube' }
+      ]],
+      remove_keyboard: true
     },
   });
+});
+
+bot.on('callback_query', async (callbackQuery) => {
+  const chatId = callbackQuery.message.chat.id;
+  const platform = callbackQuery.data;
+
+  userStates[chatId] = platform;
+
+  if (platform === 'YouTube') {
+    bot.sendMessage(chatId, 'Функционал для скачивания с YouTube еще в разработке.');
+    delete userStates[chatId];
+  } else {
+    bot.sendMessage(chatId, 'Отправьте ссылку на видео.', {
+      reply_markup: { remove_keyboard: true },
+    });
+  }
+  bot.answerCallbackQuery(callbackQuery.id);
 });
 
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text.trim();
 
-  if (!userStates[chatId]) {
-    return;
-  }
-
-  if (userStates[chatId] === 'choosing_platform') {
-    if (text === 'Instagram' || text === 'YouTube') {
-      userStates[chatId] = text;
-      if (text === 'YouTube') {
-        bot.sendMessage(chatId, 'Функционал для скачивания с YouTube еще в разработке.');
-        delete userStates[chatId];
-      } else {
-        bot.sendMessage(chatId, 'Отправьте ссылку на видео.');
-      }
-    } else {
-      bot.sendMessage(chatId, 'Пожалуйста, выберите Instagram или YouTube.');
-    }
+  if (!userStates[chatId] || userStates[chatId] === 'choosing_platform') {
     return;
   }
 
@@ -87,12 +90,13 @@ bot.on('message', async (msg) => {
       await bot.sendVideo(chatId, finalOutputPath);
       await updateProgress(chatId, currentMessage.message_id, 'Успешно отправлено!', 100);
       
-      // Отправка сообщения с повторным выбором соцсети
       bot.sendMessage(chatId, 'Откуда скачаем еще?', {
         reply_markup: {
-          keyboard: [['Instagram', 'YouTube']],
-          one_time_keyboard: true,
-          resize_keyboard: true,
+          inline_keyboard: [[
+            { text: 'Instagram', callback_data: 'Instagram' },
+            { text: 'YouTube', callback_data: 'YouTube' }
+          ]],
+          remove_keyboard: true
         },
       });
       userStates[chatId] = 'choosing_platform';
