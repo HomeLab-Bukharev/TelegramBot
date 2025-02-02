@@ -1,25 +1,29 @@
 const { exec } = require('child_process');
 const fs = require('fs');
-const { userStates } = require('./startHandler');
 
 async function handleMessage(bot, msg, startTime) {
     const chatId = msg.chat.id;
     const text = msg.text.trim();
-
-    if (!userStates[chatId] || userStates[chatId] === 'choosing_platform') {
-        return;
-    }
-
-    const platform = userStates[chatId];
-    delete userStates[chatId];
 
     if (!text.startsWith('http')) {
         bot.sendMessage(chatId, 'Пожалуйста, отправьте корректную ссылку.');
         return;
     }
 
+    const platform = detectPlatform(text);
+
+    if (platform === 'unknown') {
+        bot.sendMessage(chatId, 'Не удалось определить соцсеть. Поддерживаются только Instagram.');
+        return;
+    }
+
+    if (platform === 'YouTube') {
+        bot.sendMessage(chatId, 'Функционал для скачивания с YouTube еще в разработке.');
+        return;
+    }
+
     if (platform === 'Instagram') {
-        let currentMessage = await bot.sendMessage(chatId, 'Принято в работу: 0%');
+        let currentMessage = await bot.sendMessage(chatId, `Определен: ${platform}\nЭтап: 0% | Начинаем загрузку...`);
 
         const tempOutputPath = `downloads/temp_video_${Date.now()}.mp4`;
         const finalOutputPath = tempOutputPath.replace('temp_', '');
@@ -34,30 +38,19 @@ async function handleMessage(bot, msg, startTime) {
         }
 
         try {
-            await updateProgress(bot, chatId, currentMessage.message_id, 'Скачивание видео', 25);
+            await updateProgress(bot, chatId, currentMessage.message_id, 'Скачивание видео', 25, platform);
             const downloadCommand = `yt-dlp --cookies ${cookiesPath} -f bestvideo+bestaudio --merge-output-format mp4 -o "${tempOutputPath}" "${text}"`;
             await execPromise(downloadCommand);
 
-            await updateProgress(bot, chatId, currentMessage.message_id, 'Перекодировка видео', 60);
+            await updateProgress(bot, chatId, currentMessage.message_id, 'Перекодировка видео', 60, platform);
             const ffmpegCommand = `ffmpeg -i "${tempOutputPath}" -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -ar 44100 -ac 2 -movflags +faststart "${finalOutputPath}"`;
             await execPromise(ffmpegCommand);
 
-            await updateProgress(bot, chatId, currentMessage.message_id, 'Отправка видео', 75);
+            await updateProgress(bot, chatId, currentMessage.message_id, 'Отправка видео', 75, platform);
             await bot.sendVideo(chatId, finalOutputPath);
 
             const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(2);
-            await updateProgress(bot, chatId, currentMessage.message_id, `Успешно отправлено!\n\n✅ Выполнено за ${elapsedTime} секунд`, 100);
-            
-            bot.sendMessage(chatId, 'Откуда скачаем еще?', {
-                reply_markup: {
-                    inline_keyboard: [[
-                        { text: 'Instagram', callback_data: 'Instagram' },
-                        { text: 'YouTube', callback_data: 'YouTube' }
-                    ]],
-                    remove_keyboard: true
-                },
-            });
-            userStates[chatId] = 'choosing_platform';
+            await updateProgress(bot, chatId, currentMessage.message_id, `✅ Успешно отправлено!`, 100, platform, elapsedTime);
             
         } catch (error) {
             console.error(error.message);
@@ -72,8 +65,20 @@ async function handleMessage(bot, msg, startTime) {
     }
 }
 
-async function updateProgress(bot, chatId, messageId, stage, progress) {
-    await bot.editMessageText(`Принято в работу: ${progress}%\n\nЭтап: ${stage}`, {
+function detectPlatform(url) {
+    if (url.includes('instagram.com')) return 'Instagram';
+    if (url.includes('youtube.com') || url.includes('youtu.be')) return 'YouTube';
+    return 'unknown';
+}
+
+async function updateProgress(bot, chatId, messageId, stage, progress, platform, elapsedTime = null) {
+    let statusMessage = `Определен: ${platform}\nЭтап: ${progress}% | ${stage}`;
+    
+    if (progress === 100) {
+        statusMessage = `Определен: ${platform}\nЭтап: 100% | Успешно отправлено!\n✅ Выполнено за ${elapsedTime} секунд`;
+    }
+    
+    await bot.editMessageText(statusMessage, {
         chat_id: chatId,
         message_id: messageId,
     });
