@@ -1,10 +1,14 @@
 const { exec } = require('child_process');
 const fs = require('fs');
-const { detectPlatform, logTask, updateTaskStatus } = require('./database');
+const { detectPlatform, logTask, updateTaskStatus, updateDownloadSize, updateFinalSize } = require('./database');
 
 async function handleMessage(bot, msg) {
     const chatId = msg.chat.id;
     const text = msg.text.trim();
+
+    if (text.startsWith('/')) {
+        return; // Игнорируем команды, например /start
+    }
 
     if (!text.startsWith('http')) {
         bot.sendMessage(chatId, '❌ Пожалуйста, отправьте корректную ссылку.');
@@ -17,38 +21,34 @@ async function handleMessage(bot, msg) {
         return;
     }
 
-    // Логируем задачу в БД
     const taskId = await logTask(chatId, text, platform);
 
-    // Отправляем первое сообщение с прогрессом
     let progressMessage = await bot.sendMessage(chatId, `🔄 Обработка видео...`);
 
-    // Пути для сохранения файлов
     const tempOutputPath = `downloads/temp_video_${Date.now()}.mp4`;
     const finalOutputPath = tempOutputPath.replace('temp_', '');
 
     try {
-        // Обновляем сообщение с прогрессом
         await updateProgress(bot, chatId, progressMessage.message_id, '📥 Скачивание', 25, platform);
 
-        // Скачивание видео
         const downloadCommand = `yt-dlp -f bestvideo+bestaudio --merge-output-format mp4 -o "${tempOutputPath}" "${text}"`;
         await execPromise(downloadCommand);
 
-        // Обновляем прогресс
+        const downloadSize = getFileSize(tempOutputPath);
+        await updateDownloadSize(taskId, downloadSize); // Сохраняем размер скачанного файла
+
         await updateProgress(bot, chatId, progressMessage.message_id, '🎞 Перекодировка', 60, platform);
 
-        // Перекодировка
         const ffmpegCommand = `ffmpeg -i "${tempOutputPath}" -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k "${finalOutputPath}"`;
         await execPromise(ffmpegCommand);
 
-        // Обновляем прогресс
+        const finalSize = getFileSize(finalOutputPath);
+        await updateFinalSize(taskId, finalSize); // Сохраняем размер отправленного файла
+
         await updateProgress(bot, chatId, progressMessage.message_id, '📤 Отправка видео', 90, platform);
 
-        // Отправляем видео
         await bot.sendVideo(chatId, finalOutputPath);
 
-        // Обновляем прогресс и логируем успешное выполнение
         await updateProgress(bot, chatId, progressMessage.message_id, '✅ Успешно отправлено!', 100, platform);
         await updateTaskStatus(taskId, 'success');
 
@@ -65,9 +65,6 @@ async function handleMessage(bot, msg) {
     }
 }
 
-/**
- * Функция обновления прогресса в чате
- */
 async function updateProgress(bot, chatId, messageId, stage, progress, platform) {
     let statusMessage = `🔄 Платформа: ${platform}\n📊 Прогресс: ${progress}%\n${stage}`;
     await bot.editMessageText(statusMessage, {
@@ -76,9 +73,16 @@ async function updateProgress(bot, chatId, messageId, stage, progress, platform)
     });
 }
 
-/**
- * Запуск команд в терминале с промисами
- */
+function getFileSize(filePath) {
+    try {
+        const stats = fs.statSync(filePath);
+        return (stats.size / (1024 * 1024)).toFixed(2);
+    } catch (error) {
+        console.error("❌ Ошибка получения размера файла:", error.message);
+        return null;
+    }
+}
+
 function execPromise(command) {
     return new Promise((resolve, reject) => {
         exec(command, (error, stdout, stderr) => {

@@ -44,6 +44,16 @@ function detectPlatform(url) {
         }
     }
     return 'unknown';
+
+
 }
 
-module.exports = { pool, addUser, isAuthorized, logTask, updateTaskStatus, detectPlatform };
+async function updateDownloadSize(taskId, fileSize) {
+    await pool.query(`UPDATE tasks SET download_size = $1, updated_at = NOW() WHERE id = $2;`, [fileSize, taskId]);
+}
+
+async function updateFinalSize(taskId, fileSize) {
+    await pool.query(`UPDATE tasks SET final_size = $1, updated_at = NOW() WHERE id = $2;`, [fileSize, taskId]);
+}
+
+module.exports = { pool, addUser, isAuthorized, logTask, updateTaskStatus, updateDownloadSize, detectPlatform, updateFinalSize };

@@ -12,7 +12,7 @@ if (!process.env.BOT_TOKEN || !process.env.DATABASE_URL) {
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// Функция для проверки подключения к БД
+// Проверка подключения к БД
 async function checkDatabase() {
     try {
         const res = await pool.query('SELECT NOW()');
@@ -23,10 +23,9 @@ async function checkDatabase() {
     }
 }
 
-// Запускаем проверки
 (async () => {
     console.log("🔄 Инициализация бота...");
-    await checkDatabase(); // Проверяем БД
+    await checkDatabase();
     console.log("🚀 Бот запущен и готов к работе!");
 })();
 
@@ -35,16 +34,37 @@ bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const name = msg.from.first_name || "Unknown";
 
-    // Добавляем пользователя в базу
     await addUser(chatId, name);
 
-    // Проверяем авторизацию
     const authorized = await isAuthorized(chatId);
     if (!authorized) {
         bot.sendMessage(chatId, 'Вы не авторизованы. Дождитесь подтверждения администратора.');
         return;
     }
 
-    // Передаем обработку сообщений
     await handleMessage(bot, msg);
 });
+
+bot.onText(/\/start/, async (msg) => {
+    const chatId = msg.chat.id;
+    const name = msg.from.first_name || "друг";
+
+    const greetingMessage = `
+🐀 Привет, ${name}! 🐀
+Я – шустрая видеомышь! 🎥
+Сбегаю в соцсети и утащу для тебя нужное видео. Просто скинь ссылку!
+
+📌 Где могу порыться:
+
+✅ Instagram
+🚫 TikTok
+🚫 YouTube
+🚫 Twitter (X)
+🚫 Facebook
+
+⚠️ Доступ к норке выдается вручную. Если у тебя нет прав – жди одобрения от администратора.
+    `;
+    
+    bot.sendMessage(chatId, greetingMessage);
+});
+
