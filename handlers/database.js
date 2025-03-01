@@ -56,4 +56,45 @@ async function updateFinalSize(taskId, fileSize) {
     await pool.query(`UPDATE tasks SET final_size = $1, updated_at = NOW() WHERE id = $2;`, [fileSize, taskId]);
 }
 
-module.exports = { pool, addUser, isAuthorized, logTask, updateTaskStatus, updateDownloadSize, detectPlatform, updateFinalSize };
+async function getUserStats(telegramId) {
+    const res = await pool.query(`
+        SELECT 
+            COUNT(*) AS total_downloads,
+            COUNT(CASE WHEN status = 'success' THEN 1 END) AS successful_downloads,
+            SUM(CASE WHEN status = 'success' AND final_size IS NOT NULL THEN final_size::float ELSE 0 END) AS total_size,
+            MAX(created_at) AS last_download,
+            COUNT(DISTINCT platform) AS platforms_used
+        FROM tasks
+        WHERE user_id = $1;
+    `, [telegramId]);
+    
+    return res.rows[0];
+}
+
+async function getPlatformStats(telegramId) {
+    const res = await pool.query(`
+        SELECT 
+            platform,
+            COUNT(*) AS downloads,
+            COUNT(CASE WHEN status = 'success' THEN 1 END) AS successful
+        FROM tasks
+        WHERE user_id = $1
+        GROUP BY platform
+        ORDER BY successful DESC;
+    `, [telegramId]);
+    
+    return res.rows;
+}
+
+module.exports = { 
+    pool, 
+    addUser, 
+    isAuthorized, 
+    logTask, 
+    updateTaskStatus, 
+    updateDownloadSize, 
+    detectPlatform, 
+    updateFinalSize,
+    getUserStats,
+    getPlatformStats
+};

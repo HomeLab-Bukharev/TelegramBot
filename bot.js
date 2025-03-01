@@ -1,7 +1,7 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const { handleMessage } = require('./handlers/messageHandler');
-const { pool, addUser, isAuthorized } = require('./handlers/database');
+const { pool, addUser, isAuthorized, getUserStats, getPlatformStats } = require('./handlers/database');
 
 // Проверка переменных окружения
 if (!process.env.BOT_TOKEN || !process.env.DATABASE_URL) {
@@ -29,10 +29,69 @@ async function checkDatabase() {
     console.log("🚀 Бот запущен и готов к работе!");
 })();
 
+/**
+ * Показывает статистику пользователя
+ */
+async function showUserStats(bot, msg) {
+    const chatId = msg.chat.id;
+    const name = msg.from.first_name || "пользователь";
+
+    try {
+        // Загружаем общую статистику
+        const userStats = await getUserStats(chatId);
+        const platformStats = await getPlatformStats(chatId);
+        
+        // Форматируем дату последней загрузки
+        let lastDownloadDate = 'Нет загрузок';
+        if (userStats.last_download) {
+            const date = new Date(userStats.last_download);
+            lastDownloadDate = date.toLocaleDateString('ru-RU', {
+                day: '2-digit', 
+                month: '2-digit', 
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+        
+        // Форматируем платформы
+        let platformsText = '';
+        if (platformStats && platformStats.length > 0) {
+            platformsText = platformStats.map(p => 
+                `• ${p.platform}: ${p.successful}/${p.downloads} (${Math.round(p.successful/p.downloads*100)}%)`
+            ).join('\n');
+        } else {
+            platformsText = '• Нет данных';
+        }
+
+        // Общий объем в понятном формате
+        const totalSizeFormatted = userStats.total_size > 0 
+            ? `${parseFloat(userStats.total_size).toFixed(2)} MB` 
+            : '0 MB';
+        
+        const statsMessage = `
+📊 Статистика для ${name}:
+
+🔢 Количество загрузок: ${userStats.successful_downloads}/${userStats.total_downloads}
+📦 Общий объем загруженных видео: ${totalSizeFormatted}
+🕒 Последняя загрузка: ${lastDownloadDate}
+
+📱 По платформам:
+${platformsText}
+        `;
+        
+        bot.sendMessage(chatId, statsMessage);
+    } catch (error) {
+        console.error('❌ Ошибка при получении статистики:', error);
+        bot.sendMessage(chatId, '❌ Произошла ошибка при получении статистики.');
+    }
+}
+
 // Обработка сообщений
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const name = msg.from.first_name || "Unknown";
+    const text = msg.text || "";
 
     await addUser(chatId, name);
 
@@ -42,6 +101,27 @@ bot.on('message', async (msg) => {
         return;
     }
 
+    // Обработка кнопок меню
+    if (text === '📊 Статистика') {
+        await showUserStats(bot, msg);
+        return;
+    } else if (text === '❓ Помощь') {
+        const helpMessage = `
+🐀 Справка по использованию бота:
+
+1️⃣ Просто отправь мне ссылку на видео из Instagram
+2️⃣ Я скачаю его и пришлю тебе
+3️⃣ Чтобы узнать статистику, нажми кнопку "📊 Статистика"
+
+⚠️ В данный момент поддерживается только Instagram
+
+📌 Для связи с администратором: @adminusername
+        `;
+        bot.sendMessage(chatId, helpMessage);
+        return;
+    }
+
+    // Если это не команда меню, обрабатываем как ссылку
     await handleMessage(bot, msg);
 });
 
@@ -65,6 +145,22 @@ bot.onText(/\/start/, async (msg) => {
 ⚠️ Доступ к норке выдается вручную. Если у тебя нет прав – жди одобрения от администратора.
     `;
     
-    bot.sendMessage(chatId, greetingMessage);
+    // Создаем клавиатуру меню с кнопками
+    const mainMenu = {
+        reply_markup: {
+            keyboard: [
+                [{ text: '📊 Статистика' }],
+                [{ text: '❓ Помощь' }]
+            ],
+            resize_keyboard: true,
+            persistent: true
+        }
+    };
+    
+    bot.sendMessage(chatId, greetingMessage, mainMenu);
 });
 
+// Поддерживаем также текстовую команду /stats для совместимости
+bot.onText(/\/stats/, async (msg) => {
+    await showUserStats(bot, msg);
+});
