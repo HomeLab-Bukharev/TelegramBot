@@ -164,3 +164,30 @@ bot.onText(/\/start/, async (msg) => {
 bot.onText(/\/stats/, async (msg) => {
     await showUserStats(bot, msg);
 });
+
+// Обработчик callback кнопок
+bot.on('callback_query', async (query) => {
+    const chatId = query.message.chat.id;
+    const data = query.data;
+    
+    // Обработка кнопки "Повторить загрузку"
+    if (data.startsWith('retry_')) {
+        const url = data.substring(6); // Получаем URL из callback_data
+        
+        // Сообщаем пользователю о повторной попытке
+        await bot.answerCallbackQuery(query.id, {
+            text: 'Повторная загрузка...'
+        });
+        
+        // Создаем объект сообщения для передачи в handleMessage
+        const fakeMsg = {
+            chat: { id: chatId },
+            text: url,
+            message_id: query.message.message_id
+        };
+        
+        // Вместо удаления сообщения с кнопкой повтора, мы обновим его
+        // это реализовано внутри handleMessage
+        await handleMessage(bot, fakeMsg);
+    }
+});
