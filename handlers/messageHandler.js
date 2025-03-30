@@ -3,6 +3,38 @@ const fs = require('fs');
 const path = require('path');
 const { detectPlatform, logTask, updateTaskStatus, updateDownloadSize, updateFinalSize } = require('./database');
 
+// Создадим хранилище URL для кнопок
+const pendingRetryUrls = new Map();
+
+// Генерируем короткий ID для URL
+function generateShortId() {
+    return Math.random().toString(36).substring(2, 10); // 8 символов
+}
+
+// Обновленная версия создания кнопки "Повторить" с коротким ID
+async function createRetryButton(url) {
+    const shortId = generateShortId();
+    pendingRetryUrls.set(shortId, url);
+    
+    // Чистим старые записи через некоторое время
+    setTimeout(() => {
+        pendingRetryUrls.delete(shortId);
+    }, 24 * 60 * 60 * 1000); // 24 часа
+    
+    return {
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: '🔄 Повторить загрузку', callback_data: `retry_${shortId}` }]
+            ]
+        }
+    };
+}
+
+// Получить URL по короткому ID
+function getUrlByShortId(shortId) {
+    return pendingRetryUrls.get(shortId);
+}
+
 async function handleMessage(bot, msg) {
     const chatId = msg.chat.id;
     const messageId = msg.message_id;
@@ -93,14 +125,8 @@ async function handleMessage(bot, msg) {
     } catch (error) {
         console.error("❌ Ошибка:", error.message);
         
-        // Создаем кнопку "Повторить" для неудачной загрузки
-        const retryButton = {
-            reply_markup: {
-                inline_keyboard: [
-                    [{ text: '🔄 Повторить загрузку', callback_data: `retry_${text}` }]
-                ]
-            }
-        };
+        // Создаем кнопку "Повторить" с коротким ID вместо полного URL
+        const retryButton = await createRetryButton(text);
         
         // Обновляем сообщение с информацией об ошибке и кнопкой повтора
         await bot.editMessageText(`❌ <b>Ошибка при загрузке видео</b>\n\n🔗 <a href="${text}">Исходная ссылка</a>\n\n${error.message}`, {
@@ -153,4 +179,8 @@ function execPromise(command) {
     });
 }
 
-module.exports = { handleMessage };
+module.exports = { 
+    handleMessage,
+    createRetryButton,
+    getUrlByShortId
+};

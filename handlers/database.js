@@ -44,8 +44,6 @@ function detectPlatform(url) {
         }
     }
     return 'unknown';
-
-
 }
 
 async function updateDownloadSize(taskId, fileSize) {

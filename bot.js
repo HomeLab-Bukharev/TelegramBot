@@ -1,6 +1,6 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
-const { handleMessage } = require('./handlers/messageHandler');
+const { handleMessage, getUrlByShortId } = require('./handlers/messageHandler');
 const { pool, addUser, isAuthorized, getUserStats, getPlatformStats } = require('./handlers/database');
 
 // Проверка переменных окружения
@@ -114,6 +114,8 @@ bot.on('message', async (msg) => {
 3️⃣ Чтобы узнать статистику, нажми кнопку "📊 Статистика"
 
 ⚠️ В данный момент поддерживается только Instagram
+
+📌 Для связи с администратором: @adminusername
         `;
         bot.sendMessage(chatId, helpMessage);
         return;
@@ -170,7 +172,15 @@ bot.on('callback_query', async (query) => {
     
     // Обработка кнопки "Повторить загрузку"
     if (data.startsWith('retry_')) {
-        const url = data.substring(6); // Получаем URL из callback_data
+        const shortId = data.substring(6); // Получаем короткий ID из callback_data
+        const url = getUrlByShortId(shortId); // Получаем полный URL по ID
+        
+        if (!url) {
+            await bot.answerCallbackQuery(query.id, {
+                text: 'Время действия кнопки истекло. Пожалуйста, отправьте ссылку заново.'
+            });
+            return;
+        }
         
         // Сообщаем пользователю о повторной попытке
         await bot.answerCallbackQuery(query.id, {
